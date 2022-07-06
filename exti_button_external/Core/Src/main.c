@@ -21,7 +21,7 @@ uint8_t cnt_2 = 0;	/*this flag is to debug*/
 
 int main(void)
 {
-	HAL_Init();
+ 	HAL_Init();
 
 	gpio_led_init();
 	exti0_init();
@@ -93,6 +93,35 @@ void gpio_led_write(uint8_t LED_x, uint8_t state)
 	  *GPIOD_ODR &= ~(1 << LED_x);
 }
 
+void gpio_button_init()
+{
+	/* GPIO Ports Clock Enable */
+	__HAL_RCC_GPIOA_CLK_ENABLE();
+
+	/*Configure GPIO pin Input Level */
+	uint32_t *GPIOA_MODER = (uint32_t *)(0x40020000);
+	*GPIOA_MODER &= ~(0b11<<0);	// Set PA0 pin Input
+
+	uint32_t *GPIOA_PUPDR = (uint32_t *)(0x4002000c);
+	*GPIOA_PUPDR &= ~(0b11<<0);	// Set PA0 pin Floating
+}
+
+/*
+ * @brief read button state
+ * @param None
+ * @retval uint8_t:
+ * 		@arg 1 button in active
+ * 		@arg 2 button in in-active
+ */
+uint8_t gpio_button_read()
+{
+	uint32_t *GPIOA_IDR = (uint32_t *)(0x40020010);
+	if(((*GPIOA_IDR >> 1) & 1) == 1)
+		return 1;
+	else
+		return 0;
+}
+
 /*
  * @brief	: initialize external interrupt EXTI0
  * @param	: None
@@ -118,7 +147,7 @@ void exti0_init()
  */
 void EXTI0_IRQHandler()
 {
-	custom_delay(500000);
+	//custom_delay(500000);
 	flag_1 = 1 - flag_1;
 	cnt_1++;
 
@@ -147,7 +176,7 @@ void exti1_init()
 
 void EXTI1_IRQHandler()
 {
-	custom_delay(500000);
+	//custom_delay(500000);
 	flag_2 = 1 - flag_2;
 	cnt_2++;
 

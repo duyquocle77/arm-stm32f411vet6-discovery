@@ -13,15 +13,12 @@ void gpio_led_init();
 void gpio_led_write(uint8_t LED_x, uint8_t value);
 
 void vectortable_move();
-void exti0_init();
-void exti0_handler();
 
 void tim1_init();
 void tim1_handler();
-void tim1_delay(uint32_t time);
 
-uint8_t flag = 0;	/*this flag is status of button*/
-uint8_t cnt = 0;	/*this flag is to debug*/
+uint8_t flag;	/*this flag is status of button*/
+uint8_t cnt;	/*this flag is to debug*/
 
 int main(void)
 {
@@ -29,7 +26,6 @@ int main(void)
 
 	gpio_led_init();
 	vectortable_move();
-	exti0_init();
 	tim1_init();
 
 	while (1)
@@ -99,91 +95,59 @@ void gpio_led_write(uint8_t LED_x, uint8_t state)
  */
 void vectortable_move()
 {
+	/*
+	 * size(vector_table) = 0x194 + 0x4 - 0x00 = 0x198
+	 * */
 	/* move vector table from flash to ram */
-	void *dst = (void *)0x20000000;	// RAM
-	void *src = (void *)0x00000000;	// FLASH
+	void *volatile dst = (void *volatile)0x20000000;	// RAM_address
+	void *volatile src = (void *volatile)0x08000000;	// FLASH_address
 	memcpy(dst, src, 0x198);
 
+	/**/
 	uint32_t *VTOR = (uint32_t *)(0xE000ED08);
-	*VTOR = 0x2000000;
-}
-
-/*
- * @brief	: initialize external interrupt EXTI0
- * @param	: None
- * @retval	: None
- */
-void exti0_init()
-{
-	/*Configure External Interrupt pin   */
-	uint32_t *IMR = (uint32_t *)(0x40013c00 + 0x00); //enable mask interrupt
-	*IMR |= (1<<0);
-
-	uint32_t *EXTI_RTSR = (uint32_t *)(0x40013c00 + 0x08); //rising-mode
-	*EXTI_RTSR |= (1<<0);
-
-	uint32_t *ISER0 = (uint32_t *)(0xe000e100 + 0x00); //enable vector interrupt position 6
-	*ISER0 |= (1<<6);
-
-	/* theo mặc định tại địa chỉ 0x20000058 chứa địa chỉ handler mặc định EXTI0_IRQHandler
-	 * nên ta gán địa chỉ handler tự định nghĩa
-	 * theo quy định của tập lệnh, ta phải | với địa chỉ hàm handler
-	 *
-	 * hàm [void exti0_handler()] có con trỏ hàm là [void(*)()] chứa địa chỉ của hàm
-	 * gọi địa chỉ hàm bằng cách gọi tên hàm exti0_handler
-	 * */
-	/* assign address of user's handler */
-	*(uint32_t *)(0x20000058) = ((uint32_t)exti0_handler | 1);
-}
-
-/*
- * @brief	: handle vector interrupt EXTI0
- * @param	: None
- * @retval	: None
- */
-void exti0_handler()
-{
-	flag = 1 - flag;
-	cnt++;
-
-	/* clear interrupt flag */
-	uint32_t *PR = (uint32_t *)(0x40013c00 + 0x14);
-	*PR |= (1<<0);
+	*VTOR = 0x20000000;
 }
 
 void tim1_init()
 {
 	__HAL_RCC_TIM1_CLK_ENABLE();
+
+	/*
+	 * T = 1s = 1000 x 1ms
+	 * N = 1000 < 65535
+	 * t = 1ms -> f = 1000hz
+	 * F = 16 000 000hz -> pre-scaler = F/f = 16 000
+	 * */
 	uint32_t *ARR = (uint32_t *)(0x40010000 + 0x2c);
 	*ARR = 1000 - 1;
 	uint32_t *PCR = (uint32_t *)(0x40010000 + 0x28);
-	*PCR = 16000 - 1;
+	*PCR = 16000 - 1;			//prescaler  = f/(PCR + 1)
 
+	/*start reverse-count*/
+	/*enable counter CEN bit*/
 	uint32_t *CR1 = (uint32_t *)(0x40010000 + 0x00);
 	*CR1 |= (1 << 0);
 
+	/*enable interrupt update event*/
 	uint32_t *DIER = (uint32_t *)(0x40010000 + 0x0c);
 	*DIER |= (1<<0);
 
 	uint32_t *ISER0 = (uint32_t *)(0xe000e100 + 0x00); //enable vector interrupt position 25
 	*ISER0 |= (1<<25);
 
-	/* theo mặc định tại địa chỉ 0x20000058 chứa địa chỉ handler mặc định EXTI0_IRQHandler
-	 * nên ta gán địa chỉ handler tự định nghĩa
-	 * theo quy định của tập lệnh, ta phải | với địa chỉ hàm handler
+	/*
+	 * 0xa4 : address of EXTI0 vector
+	 * theo quy định của tập lệnh thumb, ta phải |1 với địa chỉ hàm handler
 	 *
 	 * hàm [void exti0_handler()] có con trỏ hàm là [void(*)()] chứa địa chỉ của hàm
 	 * gọi địa chỉ hàm bằng cách gọi tên hàm exti0_handler
 	 * */
-	/* assign address of user's handler */
-	*(uint32_t *)(0x20000058) = ((uint32_t)tim1_handler | 1);
+	/* assign address of user's handler*/
+	*((uint32_t *)(0x20000000 + 0xa4)) = ((uint32_t)tim1_handler | 1);
 }
 
 void TIM1_UP_TIM10_IRQHandler()
 {
-	flag = 1 - flag;
-	cnt++;
-
 	/* clear interrupt flag */
 	uint32_t *SR = (uint32_t *)(0x40010000 + 0x10);
 	*SR &= ~(1<<0);
@@ -194,12 +158,7 @@ void tim1_handler()
 	flag = 1 - flag;
 	cnt++;
 
-	/* clear interrupt flag */
+	/* clear interrupt update event flag */
 	uint32_t *SR = (uint32_t *)(0x40010000 + 0x10);
 	*SR &= ~(1<<0);
-}
-
-void tim1_delay(uint32_t time)
-{
-
 }
