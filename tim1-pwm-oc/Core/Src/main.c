@@ -4,7 +4,7 @@
 
 void vectortable_move();
 
-void tim4_init();
+void tim4_pwm_ch1_init();
 void tim4_pwm_ch1(uint8_t duty_cycle);
 
 void tim_systick_init();
@@ -19,12 +19,19 @@ int main(void)
 	HAL_Init();
 
 	vectortable_move();
-	tim4_init();
+	tim4_pwm_ch1_init();
 	tim_systick_init();
 
 	while (1)
 	{
-		tim4_pwm_ch1(50);
+		static uint8_t dim = 0;
+		while(dim <= 100)
+		{
+			tim4_pwm_ch1(dim);
+			dim += 10;
+			tim_systick_delay_ms(100);
+		}
+		dim = 0;
 	}
 
 	return 0;
@@ -76,8 +83,9 @@ void tim_systick_delay_ms(uint32_t time_milisec)
 		while(((*CSR>>16)&1)==0);
 }
 
-void tim4_init()
+void tim4_pwm_ch1_init()
 {
+	__HAL_RCC_GPIOD_CLK_ENABLE();
 	__HAL_RCC_TIM4_CLK_ENABLE();
 
 	/*alternate mode*/
@@ -85,7 +93,7 @@ void tim4_init()
 	*GPIOD_MODER &= ~(0b11<<24);
 	*GPIOD_MODER |= (1<<25);
 
-	/*function 2*/
+	/*alternate function 2*/
 	uint32_t *GPIOD_AFRH = (uint32_t *)(0x40020c00 + 0x24);
 	*GPIOD_AFRH &= ~(0b1111<<16);
 	*GPIOD_AFRH |= (1<<17);
@@ -93,25 +101,35 @@ void tim4_init()
 
 void tim4_pwm_ch1(uint8_t duty_cycle)
 {
+
+
 	/*
-	 * T = 1s = 1000 x 1ms
+	 * T = 0.001s = 1000 x ns
 	 * N = 1000 < 65535
-	 * t = 1ms -> f = 1000hz
-	 * F = 16 000 000hz -> pre-scaler = F/f = 16 000
+	 * t = 10^-6ms -> f = 1000000hz
+	 * F = 16 000 000hz -> pre-scaler = F/f = 16
 	 * */
 	uint32_t *ARR = (uint32_t *)(0x40000800 + 0x2c);
 	*ARR = 1000 - 1;
 	uint32_t *PCR = (uint32_t *)(0x40000800 + 0x28);
-	*PCR = 16000 - 1;			//prescaler  = f/(PCR + 1)
+	*PCR = 16 - 1;			//prescaler  = (PCR + 1)
 
-	uint32_t *CCR = (uint32_t *)(0x40000800 + 0x34);
-	*CCR = duty_cycle * 10;
+	uint32_t *CCR1 = (uint32_t *)(0x40000800 + 0x34);
+	*CCR1 = (duty_cycle * (*ARR + 1)) / 100;
 
 	/*start count*/
 	/*enable counter CEN bit*/
 	uint32_t *CR1 = (uint32_t *)(0x40000800 + 0x00);
 	*CR1 |= (1 << 0);
+	/*up-counter mode*/
+	*CR1 &= ~(1 << 4);
 
-	uint32_t *CCMR = (uint32_t *)(0x40000800 + 0x18);
-	*CCMR |= (1 << 0);
+	/*pwm mode 1: CNT < CCR1 -> active*/
+	uint32_t *CCMR1 = (uint32_t *)(0x40000800 + 0x18);
+	*CCMR1 &= ~(0b111<<4);
+	*CCMR1 |= (0b11 << 5);
+
+	/*enable OC1*/
+	uint32_t *CCER = (uint32_t *)(0x40000800 + 0x20);
+	*CCER |= (1 << 0);
 }
